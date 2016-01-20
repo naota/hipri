@@ -40,6 +40,7 @@
 
 #include <sys/syscall.h>
 #include <sys/uio.h>
+#include <sys/time.h>
 
 #include <linux/types.h>
 
@@ -50,16 +51,37 @@
 #define RWF_HIPRI  0x00000001
 
 struct thread_info {
-  pthread_t thread_id;
-  int       thread_num;
+  pthread_t      thread_id;
+  int            thread_num;
+  struct timeval starttime;
+  struct timeval endtime;
+  size_t         bytes;
 };
+
+static double timeval_to_secs(struct timeval *t)
+{
+    return  t->tv_sec + t->tv_usec / 1e6;
+}
+
+static void report(struct timeval starttime, struct timeval endtime,
+		   size_t bytes)
+{
+  double elapsed_time = timeval_to_secs(&endtime) -
+    timeval_to_secs(&starttime);
+
+  fprintf(stdout, "report: exchanged %zd Bytes in %2.3f seconds.\n",
+	  bytes, elapsed_time);
+}
 
 static void *thread_start(void *arg)
 {
   struct thread_info *tinfo = arg;
-  
+
+  gettimeofday(&tinfo->starttime, NULL);
   fprintf(stdout,"info: this is thread %d\n",
 	  tinfo->thread_num);
+  usleep(10000*(tinfo->thread_num+1));
+  gettimeofday(&tinfo->endtime, NULL);
 	  
   return 0;
 
@@ -169,10 +191,17 @@ int main(int argc, char **argv)
     }
   }
 
-  pthread_exit(NULL);
+  for ( unsigned i = 0; i < 2; i++) {
+    pthread_join(tinfo[i].thread_id, NULL);
+  }
+
+  report(tinfo[0].starttime, tinfo[0].endtime, tinfo[0].bytes);
+  report(tinfo[1].starttime, tinfo[1].endtime, tinfo[1].bytes);
+
   free(vec->iov_base);
   free(vec);
   close(fd);
   
+  pthread_exit(NULL);
   return 0;
 }
