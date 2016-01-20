@@ -35,21 +35,44 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
-
 #include <unistd.h>
-#include <sys/syscall.h>
+#include <pthread.h>
 
+#include <sys/syscall.h>
 #include <sys/uio.h>
 
 #include <linux/types.h>
+
+  /*
+   * A hack for now as I seem to have issues getting to the uapi
+   * fs.h. Will fix this once I get this resolved.
+   */ 
+#define RWF_HIPRI  0x00000001
+
+struct thread_info {
+  pthread_t thread_id;
+  int       thread_num;
+};
+
+static void *thread_start(void *arg)
+{
+  struct thread_info *tinfo = arg;
+  
+  fprintf(stdout,"info: this is thread %d\n",
+	  tinfo->thread_num);
+	  
+  return 0;
+
+}
 
 int main(int argc, char **argv)
 {
 
   unsigned long fd, len = 8192, pos_l  = 0, pos_h = 0;
   struct iovec *vec;
+  __u32 *buf, check;    
 #ifdef CONFIG_PREADV2
-  int flags = 0;
+  int flags = RWF_HIPRI;
 #endif
   
   if ( argc !=2 ){
@@ -87,6 +110,13 @@ int main(int argc, char **argv)
     
 #ifdef CONFIG_PREADV2
 
+  /*
+   * Note that since for now the SYS_preadv2 macro does not exist in
+   * glibc we hard-code it to the value in
+   * arch/x86/entry/syscalls/syscall_64.tbl. Livin' on the edge!!
+   */
+
+#define SYS_preadv2 326  
   syscall(SYS_preadv2, fd, vec, 1, pos_l, pos_h, flags);
 
 #else
@@ -112,7 +142,7 @@ int main(int argc, char **argv)
     exit(errno);
   }
 
-  __u32 *buf = (__u32 *)vec->iov_base, check;
+  buf = (__u32 *)vec->iov_base;
   for (unsigned i=0; i<len/4; i++){
     read(fd, &check, 4);
     if ( buf[i] != check ){
@@ -121,16 +151,25 @@ int main(int argc, char **argv)
       exit(errno);
       }
   }
-  fprintf(stdout,"All %ld entries match!\n", len/4);
-	      
+  fprintf(stdout,"check: all %ld entries match!\n", len/4);
 
+  /*
+   * Now that we have got this far we do a simple test that kicks off
+   * two worker threads. One thread does low priority IO and the other
+   * does high priority and we time each. Note that this is only going
+   * to work on NVMe drives with DIRECT I/O for now.
+   */
+  struct thread_info tinfo[2];
+  for ( unsigned i=0 ; i<2 ; i++){
+    tinfo[i].thread_num = i;
+    if ( pthread_create(&tinfo[i].thread_id, NULL, thread_start, &tinfo[i]) ){
+      fprintf(stderr,"error: pthread_create(): %s (%d)\n", strerror(errno),
+	      errno);
+      exit(errno);
+    }
+  }
 
-    /*    
-  __u32 *tmp = (__u32 *)vec->iov_base;
-  for (unsigned i=0; i<64; i++)
-    fprintf(stdout,"%02d: 0x%08x\n", i, tmp[i]);
-    */
-    
+  pthread_exit(NULL);
   free(vec->iov_base);
   free(vec);
   close(fd);
