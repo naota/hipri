@@ -1,5 +1,5 @@
 EXE=hipri
-CFLAGS += -Werror -pthread
+CFLAGS += -std=gnu99 -Werror -pthread
 
 $(EXE): $(EXE).c
 	$(CC) $(CFLAGS) $(EXE).c -o $(EXE)

@@ -26,7 +26,7 @@
 //
 //   Description:
 //     Test function for the new preadv2 function and the priority
-//     flag that goes with it. 
+//     flag that goes with it.
 //
 ////////////////////////////////////////////////////////////////////////
 
@@ -59,7 +59,7 @@
   /*
    * A hack for now as I seem to have issues getting to the uapi
    * fs.h. Will fix this once I get this resolved.
-   */ 
+   */
 #define RWF_HIPRI  0x00000001
 
 struct thread_info {
@@ -144,8 +144,8 @@ int main(int argc, char **argv)
 
   unsigned long fd, len = 8192, pos_l  = 0, pos_h = 0;
   struct iovec *vec;
-  __u32 *buf, check;    
-  
+  __u32 *buf, check;
+
   if ( argc !=2 ){
     fprintf(stderr,"error: %s takes one argument!\n",
 	    argv[0]);
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
   }
   vec->iov_base = malloc(len);
   vec->iov_len  = len;
-    
+
 #ifdef CONFIG_PREADV2
 
   syscall(SYS_preadv2, fd, vec, 1, pos_l, pos_h, RWF_HIPRI);
@@ -196,9 +196,9 @@ int main(int argc, char **argv)
 
   /*
    * Now do a check by re-opening the target file and doing a more
-   * standard read and comparing the bits in the iovec buffer. 
+   * standard read and comparing the bits in the iovec buffer.
    */
-  
+
   if ( lseek(fd, 0, SEEK_SET) == -1 ){
     fprintf(stderr,"error: lseek(): %s (%d)\n", strerror(errno),
 	    errno);
@@ -247,7 +247,7 @@ int main(int argc, char **argv)
   free(vec->iov_base);
   free(vec);
   close(fd);
-  
+
   pthread_exit(NULL);
   return 0;
 }
