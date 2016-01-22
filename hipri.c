@@ -30,6 +30,7 @@
 //
 ////////////////////////////////////////////////////////////////////////
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -37,12 +38,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <malloc.h>
+#include <dirent.h>
 
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include <linux/types.h>
+
+#define DEVICE "nvme0n1"
+#define MQ_DIR  "/sys/block/"DEVICE"/mq/"
 
 #ifdef CONFIG_PREADV2
 
@@ -75,6 +83,49 @@ struct thread_info {
   struct timeval endtime;
 };
 
+struct iopoll_stats {
+    unsigned int invoked;
+    unsigned int success;
+};
+
+  /*
+   * Report the polling stats gathered from the relevant sysfs entries
+   * for this device.
+   */
+static void report_iopoll(char *dev)
+{
+  DIR  *fdir;
+  struct dirent *gdir;
+  FILE *fd;
+  char iopoll[256];
+
+  struct iopoll_stats stats;
+
+  if ( (fdir = opendir(MQ_DIR)) == NULL ){
+    fprintf(stderr,"error: opendir(): %s (%d)\n", strerror(errno),
+	    errno);
+    exit(errno);
+  }
+  while ( gdir = readdir(fdir) ){
+
+    if (!strcmp (gdir->d_name, "."))
+      continue;
+    if (!strcmp (gdir->d_name, ".."))
+      continue;
+
+    sprintf(iopoll,"%s%s/io_poll", MQ_DIR, gdir->d_name);
+    if ( (fd = fopen(iopoll, "r")) == NULL )
+    {
+      fprintf(stderr,"error: open(): %s (%d)\n", strerror(errno),
+              errno);
+      exit(errno);
+    }
+    fscanf(fd,"invoked=%d, success=%d\n", &stats.invoked, &stats.success);
+    fprintf(stdout,"invoked=%d, success=%d\n", stats.invoked, stats.success);
+    fclose(fd);
+  }
+}
+
 static double timeval_to_secs(struct timeval *t)
 {
     return  t->tv_sec + t->tv_usec / 1e6;
@@ -94,7 +145,7 @@ static void run(struct thread_info *tinfo)
 {
 
   tinfo->fd = open(tinfo->filename, O_RDWR | O_TRUNC |
-		   O_CREAT );
+		   O_CREAT | O_DIRECT );
   if ( tinfo->fd == -1 ){
     fprintf(stderr,"error: open(): %s (%d)\n", strerror(errno),
 	    errno);
@@ -108,7 +159,11 @@ static void run(struct thread_info *tinfo)
 	    errno);
     exit(errno);
   }
-  tinfo->vec->iov_base = malloc(tinfo->len);
+  /*
+   * TBD: Replace the hard-coded 4096 with a BLKSZGET ioctl call.
+   */
+  tinfo->vec->iov_base = memalign(4096,
+                                  tinfo->len);
   tinfo->vec->iov_len  = tinfo->len;
 
 #ifdef CONFIG_PREADV2
@@ -154,7 +209,8 @@ int main(int argc, char **argv)
 
   /*
    * Open the requested file in read-only mode. We will test the new
-   * system call by reading from this file.
+   * system call by reading from this file. Note that in this case we
+   * don't use O_DIRECT. We just want to see if the syscall works.
    */
 
   fd = open(argv[1], O_RDONLY);
@@ -243,6 +299,8 @@ int main(int argc, char **argv)
 
   report(tinfo[0].starttime, tinfo[0].endtime, 2*tinfo[0].len);
   report(tinfo[1].starttime, tinfo[1].endtime, 2*tinfo[1].len);
+
+  report_iopoll(NULL);
 
   free(vec->iov_base);
   free(vec);
