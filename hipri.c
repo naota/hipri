@@ -49,6 +49,12 @@
 
 #include <linux/types.h>
 
+  /*
+   * For now #define the NVMe device we will issue test IO on as well
+   * as the location of the io_poll sysfs file(s). In time we can
+   * handle some of this in a nicer way.
+   */
+
 #define DEVICE "nvme0n1"
 #define MQ_DIR  "/sys/block/"DEVICE"/mq/"
 
@@ -170,14 +176,19 @@ static void run(struct thread_info *tinfo)
 
   syscall(SYS_pwritev2, tinfo->fd, tinfo->vec, 1, 0, 0,
 	  tinfo->flags);
+  syscall(SYS_preadv2, tinfo->fd, tinfo->vec, 1, 0, 0,
+	  tinfo->flags);
 
 #else
 
   syscall(SYS_pwritev, tinfo->fd, tinfo->vec, 1, 0, 0);
+  syscall(SYS_preadv, tinfo->fd, tinfo->vec, 1, 0, 0);
 
 #endif
 
   gettimeofday(&tinfo->endtime, NULL);
+
+  free(tinfo->vec->iov_base);
   free(tinfo->vec);
   close(tinfo->fd);
 }
